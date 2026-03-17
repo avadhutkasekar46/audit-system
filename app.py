@@ -7,7 +7,7 @@ st.title("Audit Dashboard & Tracking System")
 
 file = "data.csv"
 
-# Load data
+# ---------------- LOAD DATA ----------------
 if os.path.exists(file):
     df = pd.read_csv(file)
 else:
@@ -44,7 +44,7 @@ with st.sidebar.form("form"):
             "Audit End": audit_end,
             "Report Uploaded": upload,
             "Report Reviewed": review,
-            "Certificate Issued": cert,
+            "Certificate Issed": cert,
             "Major NC": major,
             "Minor NC": minor
         }
@@ -55,15 +55,18 @@ with st.sidebar.form("form"):
 
 # ---------------- CALCULATIONS ----------------
 if not df.empty:
+    # Convert to datetime safely
     df["Audit End"] = pd.to_datetime(df["Audit End"], errors="coerce")
     df["Report Uploaded"] = pd.to_datetime(df["Report Uploaded"], errors="coerce")
     df["Report Reviewed"] = pd.to_datetime(df["Report Reviewed"], errors="coerce")
-    df["Certificate Issued"] = pd.to_datetime(df["Certificate Issued"], errors="coerce")
+    df["Certificate Issued"] = pd.to_datetime(df.get("Certificate Issued"), errors="coerce")
 
+    # TAT Calculations
     df["Upload TAT"] = (df["Report Uploaded"] - df["Audit End"]).dt.days
     df["Review TAT"] = (df["Report Reviewed"] - df["Report Uploaded"]).dt.days
     df["Certification TAT"] = (df["Certificate Issued"] - df["Report Reviewed"]).dt.days
 
+    # Status Logic
     def status(row):
         if pd.isna(row["Report Uploaded"]):
             return "Pending Upload"
@@ -76,11 +79,21 @@ if not df.empty:
 
     df["Status"] = df.apply(status, axis=1)
 
+else:
+    df["Status"] = []
+
 # ---------------- FILTERS ----------------
 st.sidebar.header("Filters")
 
-client_filter = st.sidebar.multiselect("Client", df["Client Name"].dropna().unique())
-status_filter = st.sidebar.multiselect("Status", df["Status"].dropna().unique())
+client_filter = st.sidebar.multiselect(
+    "Client",
+    df["Client Name"].dropna().unique() if "Client Name" in df.columns else []
+)
+
+status_filter = st.sidebar.multiselect(
+    "Status",
+    df["Status"].dropna().unique() if "Status" in df.columns else []
+)
 
 filtered_df = df.copy()
 
@@ -98,14 +111,18 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Audits", len(filtered_df))
 col2.metric("Completed", len(filtered_df[filtered_df["Status"]=="Completed"]))
 col3.metric("Pending", len(filtered_df[filtered_df["Status"]!="Completed"]))
-col4.metric("Avg Upload TAT", round(filtered_df["Upload TAT"].mean(),1) if not filtered_df.empty else 0)
+col4.metric(
+    "Avg Upload TAT",
+    round(filtered_df["Upload TAT"].mean(),1)
+    if "Upload TAT" in filtered_df and not filtered_df.empty else 0
+)
 
 # ---------------- CHARTS ----------------
 st.subheader("Insights")
 
-st.bar_chart(filtered_df["Status"].value_counts())
-
-st.bar_chart(filtered_df.groupby("Client Name")["Major NC"].sum())
+if not filtered_df.empty:
+    st.bar_chart(filtered_df["Status"].value_counts())
+    st.bar_chart(filtered_df.groupby("Client Name")["Major NC"].sum())
 
 # ---------------- TABLE ----------------
 st.subheader("Audit Records")
