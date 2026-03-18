@@ -1,136 +1,71 @@
-import streamlit as st
 import pandas as pd
-import os
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide")
-st.title("Audit Dashboard & Tracking System")
+# 1. Initialize data storage
+client_data = []
 
-file = "data.csv"
-
-# ---------------- LOAD DATA ----------------
-if os.path.exists(file):
-    df = pd.read_csv(file)
-else:
-    df = pd.DataFrame(columns=[
-        "Client Name","Standard","Audit Start","Audit End",
-        "Report Uploaded","Report Reviewed",
-        "Certificate Issued","Major NC","Minor NC"
-    ])
-
-# ---------------- FORM ----------------
-st.sidebar.header("Add New Audit")
-
-with st.sidebar.form("form"):
-    client = st.text_input("Client Name")
-    standard = st.multiselect("Standard", ["GOTS","OCS","GRS","BCI"])
+def add_client():
+    name = input("\nEnter Client Name: ")
+    print("Select Standard(s): GOTS, OCS, GRS, RCS, BCI (comma separated)")
+    standards = input("Standards: ").upper()
     
-    audit_start = st.date_input("Audit Start")
-    audit_end = st.date_input("Audit End")
+    issue_date_str = input("Issue Date (YYYY-MM-DD): ")
+    expiry_date_str = input("Expiry Date (YYYY-MM-DD): ")
     
-    upload = st.date_input("Report Uploaded")
-    review = st.date_input("Report Reviewed")
-    cert = st.date_input("Certificate Issued")
+    # Convert strings to dates
+    expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d")
+    today = datetime.now()
     
-    major = st.number_input("Major NC", 0)
-    minor = st.number_input("Minor NC", 0)
+    # Logic for status
+    if expiry_date < today:
+        status = "Expired"
+    elif expiry_date <= today + timedelta(days=30):
+        status = "Near Expiry"
+    else:
+        status = "Active"
 
-    submit = st.form_submit_button("Save")
+    client_data.append({
+        "Client": name,
+        "Standards": standards,
+        "Issue Date": issue_date_str,
+        "Expiry Date": expiry_date,
+        "Status": status
+    })
+    print(f"\n✅ Data for {name} added successfully!")
 
-    if submit:
-        new = {
-            "Client Name": client,
-            "Standard": ", ".join(standard),
-            "Audit Start": audit_start,
-            "Audit End": audit_end,
-            "Report Uploaded": upload,
-            "Report Reviewed": review,
-            "Certificate Issed": cert,
-            "Major NC": major,
-            "Minor NC": minor
-        }
+def show_visuals():
+    if not client_data:
+        print("No data available to visualize.")
+        return
+        
+    df = pd.DataFrame(client_data)
+    status_counts = df['Status'].value_counts()
+    
+    # Define colors for the chart
+    colors = {'Active': 'green', 'Near Expiry': 'orange', 'Expired': 'red'}
+    current_colors = [colors.get(x, 'blue') for x in status_counts.index]
 
-        df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
-        df.to_csv(file, index=False)
-        st.success("Saved!")
+    plt.figure(figsize=(8, 5))
+    status_counts.plot(kind='bar', color=current_colors)
+    plt.title('Client Certificate Status Overview')
+    plt.xlabel('Status')
+    plt.ylabel('Number of Clients')
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
 
-# ---------------- CALCULATIONS ----------------
-if not df.empty:
-    # Convert to datetime safely
-    df["Audit End"] = pd.to_datetime(df["Audit End"], errors="coerce")
-    df["Report Uploaded"] = pd.to_datetime(df["Report Uploaded"], errors="coerce")
-    df["Report Reviewed"] = pd.to_datetime(df["Report Reviewed"], errors="coerce")
-    df["Certificate Issued"] = pd.to_datetime(df.get("Certificate Issued"), errors="coerce")
-
-    # TAT Calculations
-    df["Upload TAT"] = (df["Report Uploaded"] - df["Audit End"]).dt.days
-    df["Review TAT"] = (df["Report Reviewed"] - df["Report Uploaded"]).dt.days
-    df["Certification TAT"] = (df["Certificate Issued"] - df["Report Reviewed"]).dt.days
-
-    # Status Logic
-    def status(row):
-        if pd.isna(row["Report Uploaded"]):
-            return "Pending Upload"
-        elif pd.isna(row["Report Reviewed"]):
-            return "Pending Review"
-        elif pd.isna(row["Certificate Issued"]):
-            return "Pending Certification"
-        else:
-            return "Completed"
-
-    df["Status"] = df.apply(status, axis=1)
-
-else:
-    df["Status"] = []
-
-# ---------------- FILTERS ----------------
-st.sidebar.header("Filters")
-
-client_filter = st.sidebar.multiselect(
-    "Client",
-    df["Client Name"].dropna().unique() if "Client Name" in df.columns else []
-)
-
-status_filter = st.sidebar.multiselect(
-    "Status",
-    df["Status"].dropna().unique() if "Status" in df.columns else []
-)
-
-filtered_df = df.copy()
-
-if client_filter:
-    filtered_df = filtered_df[filtered_df["Client Name"].isin(client_filter)]
-
-if status_filter:
-    filtered_df = filtered_df[filtered_df["Status"].isin(status_filter)]
-
-# ---------------- DASHBOARD ----------------
-st.subheader("Dashboard")
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Total Audits", len(filtered_df))
-col2.metric("Completed", len(filtered_df[filtered_df["Status"]=="Completed"]))
-col3.metric("Pending", len(filtered_df[filtered_df["Status"]!="Completed"]))
-col4.metric(
-    "Avg Upload TAT",
-    round(filtered_df["Upload TAT"].mean(),1)
-    if "Upload TAT" in filtered_df and not filtered_df.empty else 0
-)
-
-# ---------------- CHARTS ----------------
-st.subheader("Insights")
-
-if not filtered_df.empty:
-    st.bar_chart(filtered_df["Status"].value_counts())
-    st.bar_chart(filtered_df.groupby("Client Name")["Major NC"].sum())
-
-# ---------------- TABLE ----------------
-st.subheader("Audit Records")
-st.dataframe(filtered_df)
-
-# ---------------- DOWNLOAD ----------------
-st.download_button(
-    "Download Data",
-    filtered_df.to_csv(index=False),
-    "audit_data.csv"
-)
+# Main Loop
+while True:
+    print("\n--- Certification Tracker ---")
+    print("1. Add Client Data")
+    print("2. View Visual Report")
+    print("3. Exit")
+    choice = input("Select an option: ")
+    
+    if choice == '1':
+        add_client()
+    elif choice == '2':
+        show_visuals()
+    elif choice == '3':
+        break
