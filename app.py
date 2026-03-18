@@ -1,71 +1,86 @@
+import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import plotly.express as px
+from datetime import datetime, date
 
-# 1. Initialize data storage
-client_data = []
+# --- Page Config ---
+st.set_page_config(page_title="Textile Cert Tracker", layout="wide")
+st.title("🛡️ Client Certificate Compliance Manager")
 
-def add_client():
-    name = input("\nEnter Client Name: ")
-    print("Select Standard(s): GOTS, OCS, GRS, RCS, BCI (comma separated)")
-    standards = input("Standards: ").upper()
+# --- Data Initialization ---
+# In a real app, you'd link this to a database or Google Sheets.
+# For now, we use session_state to keep data during the current session.
+if 'client_db' not in st.session_state:
+    st.session_state.client_db = pd.DataFrame(columns=[
+        "Client Name", "Standards", "Issue Date", "Expiry Date", "Status"
+    ])
+
+# --- Sidebar: Data Entry ---
+st.sidebar.header("Add New Client")
+with st.sidebar.form("client_form", clear_on_submit=True):
+    name = st.text_input("Client Name")
     
-    issue_date_str = input("Issue Date (YYYY-MM-DD): ")
-    expiry_date_str = input("Expiry Date (YYYY-MM-DD): ")
+    # Checklist for Standards
+    selected_standards = st.multiselect(
+        "Select Standards", 
+        ["GOTS", "OCS", "GRS", "RCS", "BCI"]
+    )
     
-    # Convert strings to dates
-    expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d")
-    today = datetime.now()
+    col1, col2 = st.columns(2)
+    issue_date = col1.date_input("Issue Date", value=date.today())
+    expiry_date = col2.date_input("Expiry Date", value=date.today())
     
-    # Logic for status
-    if expiry_date < today:
-        status = "Expired"
-    elif expiry_date <= today + timedelta(days=30):
-        status = "Near Expiry"
-    else:
-        status = "Active"
+    submitted = st.form_submit_button("Add to Database")
 
-    client_data.append({
-        "Client": name,
-        "Standards": standards,
-        "Issue Date": issue_date_str,
-        "Expiry Date": expiry_date,
-        "Status": status
-    })
-    print(f"\n✅ Data for {name} added successfully!")
+    if submitted:
+        if name and selected_standards:
+            # Logic for Status
+            today = date.today()
+            days_to_expiry = (expiry_date - today).days
+            
+            if days_to_expiry < 0:
+                status = "🔴 Expired"
+            elif days_to_expiry <= 30:
+                status = "🟠 Near Expiry"
+            else:
+                status = "🟢 Active"
+            
+            # Update DataFrame
+            new_data = {
+                "Client Name": name,
+                "Standards": ", ".join(selected_standards),
+                "Issue Date": issue_date,
+                "Expiry Date": expiry_date,
+                "Status": status
+            }
+            st.session_state.client_db = pd.concat([st.session_state.client_db, pd.DataFrame([new_data])], ignore_index=True)
+            st.success(f"Added {name}")
+        else:
+            st.error("Please fill in all fields")
 
-def show_visuals():
-    if not client_data:
-        print("No data available to visualize.")
-        return
-        
-    df = pd.DataFrame(client_data)
-    status_counts = df['Status'].value_counts()
+# --- Main Dashboard ---
+if not st.session_state.client_db.empty:
+    # 1. Metrics
+    total = len(st.session_state.client_db)
+    expired = len(st.session_state.client_db[st.session_state.client_db['Status'] == "🔴 Expired"])
     
-    # Define colors for the chart
-    colors = {'Active': 'green', 'Near Expiry': 'orange', 'Expired': 'red'}
-    current_colors = [colors.get(x, 'blue') for x in status_counts.index]
+    m1, m2 = st.columns(2)
+    m1.metric("Total Clients", total)
+    m2.metric("Critical (Expired)", expired, delta_color="inverse")
 
-    plt.figure(figsize=(8, 5))
-    status_counts.plot(kind='bar', color=current_colors)
-    plt.title('Client Certificate Status Overview')
-    plt.xlabel('Status')
-    plt.ylabel('Number of Clients')
-    plt.xticks(rotation=0)
-    plt.tight_layout()
-    plt.show()
+    # 2. Visuals
+    st.subheader("Compliance Visuals")
+    fig = px.bar(
+        st.session_state.client_db, 
+        x="Status", 
+        color="Status",
+        color_discrete_map={"🟢 Active": "green", "🟠 Near Expiry": "orange", "🔴 Expired": "red"},
+        title="Certificate Status Distribution"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-# Main Loop
-while True:
-    print("\n--- Certification Tracker ---")
-    print("1. Add Client Data")
-    print("2. View Visual Report")
-    print("3. Exit")
-    choice = input("Select an option: ")
-    
-    if choice == '1':
-        add_client()
-    elif choice == '2':
-        show_visuals()
-    elif choice == '3':
-        break
+    # 3. Data Table
+    st.subheader("Client Registry")
+    st.dataframe(st.session_state.client_db, use_container_width=True)
+else:
+    st.info("No data added yet. Use the sidebar to enter client details.")
